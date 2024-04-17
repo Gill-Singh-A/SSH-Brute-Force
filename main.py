@@ -50,8 +50,8 @@ def login(ssh_server, port, user, password):
 def brute_force(thread_index, ssh_server, port, credentials):
     successful_logins = {}
     for credential in credentials:
-        status = ''
-        while status != True and status != False:
+        status = ['']
+        while status[0] != True and status[0] != False:
             status = login(ssh_server, port, credential[0], credential[1])
             if status[0] == True:
                 successful_logins[credential[0]] = credential[1]
