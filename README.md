@@ -15,8 +15,8 @@ Install the dependencies:
 pip install -r requirements.txt
 ```
 ## Arguments
-* '-s', "--server" : Target SMTP Server
-* '-p', "--port" : Port of Target SMTP Server (Default=25)
+* '-s', "--server" : Target SSH Server
+* '-p', "--port" : Port of Target SSH Server (Default=22)
 * '-u', "--users" : Target Users (seperated by ',') or File containing List of Users
 * '-P', "--password" : Passwords (seperated by ',') or File containing List of Passwords
 * '-c', "--credentials" : Name of File containing Credentials in format ({user}:{password})
